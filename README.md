@@ -1,7 +1,6 @@
-# VectorDB — Build a Vector Database from Scratch in C++
+# VectorDB AI Assistant
 
-A fully working **Vector Database** built from scratch in C++ with a web UI.  
-Implements **HNSW**, **KD-Tree**, and **Brute Force** search algorithms side-by-side, plus a **RAG pipeline** powered by a local LLM via Ollama.
+A C++ Vector Database with HNSW, KD-Tree, Brute Force search, REST API, Ollama integration, vector embeddings, and Retrieval-Augmented Generation (RAG).
 
 > Built as an educational project to show how production vector databases like Pinecone, Weaviate, and Chroma actually work under the hood.
 
