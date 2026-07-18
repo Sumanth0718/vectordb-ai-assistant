@@ -151,8 +151,14 @@ Access the web dashboard at `http://localhost:8080`.
 
 ## Screenshots
 
-*(Placeholders - Add interface screenshots here)*
+### 1. Vector Search Dashboard (Initial State)
+![Vector Search Dashboard](screenshots/search_initial.png)
 
-- **Dashboard and PCA Vector Space Plot**: `[Placeholder: Main Search UI]`
-- **RAG Chat Assistant Interface**: `[Placeholder: RAG Chat UI]`
-- **Algorithm Speed Benchmarking**: `[Placeholder: Benchmark UI]`
+### 2. Live Query Visualization & Latency Analysis
+![Query Search Visualization](screenshots/search_query.png)
+
+### 3. Document Ingestion (Local Embeddings)
+![Document Ingestion](screenshots/documents_tab.png)
+
+### 4. Ask AI Assistant (Retrieval-Augmented Generation)
+![RAG Chat Assistant](screenshots/rag_ask_ai.png)
