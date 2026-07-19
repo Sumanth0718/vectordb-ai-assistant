@@ -1,6 +1,6 @@
 # VectorDB AI Assistant
 
-high-performance C++ vector database built from scratch, featuring Brute Force, KD-Tree, and HNSW search algorithms. It includes a custom REST API, a responsive frontend UI with a 2D PCA scatter plot, and a Retrieval-Augmented Generation (RAG) pipeline powered by local LLMs via Ollama.
+A high-performance C++ vector database built from scratch, featuring Brute Force, KD-Tree, and HNSW search algorithms. It includes a custom REST API, a responsive frontend UI with a 2D PCA scatter plot, and a Retrieval-Augmented Generation (RAG) pipeline powered by local LLMs via Ollama.
 
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 ![Ollama](https://img.shields.io/badge/Ollama-Offline-orange.svg)
