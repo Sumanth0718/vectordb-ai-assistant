@@ -882,7 +882,61 @@ int main() {
         cors(res); res.status = 204;
     });
 
-    // ── DEMO VECTOR ENDPOINTS ─────────────────────────────────────────
+    // ── GEMINI DIAGNOSTIC ENDPOINT ────────────────────────────────────
+    // GET /debug/gemini  — makes a live Gemini embedding call and returns
+    // the raw HTTP status + body so we can diagnose failures without logs.
+    svr.Get("/debug/gemini", [&](const httplib::Request&, httplib::Response& res) {
+        cors(res);
+        const char* keyEnv = std::getenv("GEMINI_API_KEY");
+        std::string key = keyEnv ? keyEnv : "";
+        std::ostringstream out;
+        out << "{";
+        out << "\"keyPresent\":" << (key.empty() ? "false" : "true");
+        out << ",\"keyLength\":" << key.size();
+        out << ",\"ollamaUseGemini\":" << (ollama.embedModel == "text-embedding-004" ? "true" : "false");
+        out << ",\"embedModel\":\"" << ollama.embedModel << "\"";
+
+        if (key.empty()) {
+            out << ",\"error\":\"GEMINI_API_KEY not set\"}";
+            res.set_content(out.str(), "application/json"); return;
+        }
+
+        // Make a real SSLClient call to Gemini
+        httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
+#ifdef __linux__
+        cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
+#endif
+        cli.enable_server_certificate_verification(false);
+        cli.set_connection_timeout(10, 0);
+        cli.set_read_timeout(30, 0);
+
+        std::string path = "/v1beta/models/text-embedding-004:embedContent?key=" + key;
+        std::string body = "{\"model\":\"models/text-embedding-004\",\"content\":{\"parts\":[{\"text\":\"hello world\"}]}}";
+
+        out << ",\"requestPath\":\"" << path.substr(0, path.size() - key.size()) << "REDACTED\"";
+        out << ",\"requestBody\":" << body;
+
+        auto r = cli.Post(path.c_str(), body, "application/json");
+        if (!r) {
+            out << ",\"httpStatus\":null,\"httpError\":\"connection failed / no response\"}";
+        } else {
+            // Escape the body for JSON
+            std::string rb = r->body;
+            std::string esc_body;
+            for (char c : rb) {
+                if      (c == '"')  esc_body += "\\\"";
+                else if (c == '\\') esc_body += "\\\\";
+                else if (c == '\n') esc_body += "\\n";
+                else if (c == '\r') esc_body += "\\r";
+                else                esc_body += c;
+            }
+            out << ",\"httpStatus\":" << r->status;
+            out << ",\"responseBody\":\"" << esc_body << "\"";
+            out << "}";
+        }
+        res.set_content(out.str(), "application/json");
+    });
+
 
     svr.Get("/search", [&](const httplib::Request& req, httplib::Response& res) {
         cors(res);
