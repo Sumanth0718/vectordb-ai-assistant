@@ -652,6 +652,7 @@ public:
 #ifdef __linux__
             cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
 #endif
+            cli.enable_server_certificate_verification(false);
             cli.set_connection_timeout(5, 0);
             cli.set_read_timeout(30, 0);
             std::string path = "/v1beta/models/text-embedding-004:embedContent?key=" + geminiApiKey;
@@ -680,6 +681,7 @@ public:
 #ifdef __linux__
             cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
 #endif
+            cli.enable_server_certificate_verification(false);
             cli.set_connection_timeout(5, 0);
             cli.set_read_timeout(120, 0);
             std::string path = "/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiApiKey;
@@ -983,6 +985,23 @@ int main() {
     // ── DOCUMENT + RAG ENDPOINTS ──────────────────────────────────────
 
     // POST /doc/insert  {"title":"...","text":"..."}
+    svr.Get("/test-gemini", [&](const httplib::Request&, httplib::Response& res) {
+        cors(res);
+        httplib::Client cli("https://generativelanguage.googleapis.com");
+#ifdef __linux__
+        cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
+#endif
+        cli.enable_server_certificate_verification(false);
+        std::string path = "/v1beta/models/text-embedding-004:embedContent?key=" + geminiApiKey;
+        std::string body = "{\"model\":\"models/text-embedding-004\",\"content\":{\"parts\":[{\"text\":\"hello\"}]}}";
+        auto apiRes = cli.Post(path.c_str(), body, "application/json");
+        if (!apiRes) {
+            res.set_content("Connection failed: " + std::to_string((int)apiRes.error()), "text/plain");
+        } else {
+            res.set_content("Status: " + std::to_string(apiRes->status) + "\nBody: " + apiRes->body, "text/plain");
+        }
+    });
+
     // Chunks the text, embeds each chunk via Ollama, stores in DocumentDB
     svr.Post("/doc/insert", [&](const httplib::Request& req, httplib::Response& res) {
         cors(res);
