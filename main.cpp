@@ -635,6 +635,15 @@ public:
         }
     }
 
+    // Provider-agnostic wrappers — use these in all endpoints
+    std::vector<float> getEmbedding(const std::string& text) {
+        return embed(text);
+    }
+
+    std::string getCompletion(const std::string& prompt) {
+        return generate(prompt);
+    }
+
     bool isAvailable() {
         if (useGemini) {
             return !geminiApiKey.empty();
