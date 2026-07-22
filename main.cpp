@@ -656,8 +656,10 @@ public:
 
     // Returns empty vector if Ollama is not running or model not found
     std::vector<float> embed(const std::string& text) {
+        std::cerr << "[embed] called, useGemini=" << useGemini << std::endl;
         if (useGemini) {
-            httplib::Client cli("https://generativelanguage.googleapis.com");
+            std::cerr << "[embed] using Gemini, key length=" << geminiApiKey.size() << std::endl;
+            httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
 #ifdef __linux__
             cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
 #endif
@@ -685,8 +687,9 @@ public:
 
     // Returns error string if Ollama is unavailable
     std::string generate(const std::string& prompt) {
+        std::cerr << "[generate] called, useGemini=" << useGemini << std::endl;
         if (useGemini) {
-            httplib::Client cli("https://generativelanguage.googleapis.com");
+            httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
 #ifdef __linux__
             cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
 #endif
