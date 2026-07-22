@@ -561,6 +561,8 @@ std::vector<std::string> chunkText(const std::string& text,
 class OllamaClient {
     std::string host;
     int         port;
+    bool        useGemini = false;
+    std::string geminiApiKey;
 
     // Escape a string for embedding inside a JSON string literal
     std::string esc(const std::string& s) {
@@ -592,9 +594,29 @@ class OllamaClient {
         return parseVec(body.substr(p + 1, e - p - 2));
     }
 
+    // Parse Gemini's "values" array from response:
+    // {"embedding": {"values": [...]}}
+    std::vector<float> parseGeminiEmbedding(const std::string& body) {
+        size_t p = body.find("\"values\"");
+        if (p == std::string::npos) return {};
+        p = body.find('[', p);
+        if (p == std::string::npos) return {};
+        size_t e = p + 1, depth = 1;
+        while (e < body.size() && depth > 0) {
+            if (body[e] == '[') depth++;
+            else if (body[e] == ']') depth--;
+            e++;
+        }
+        return parseVec(body.substr(p + 1, e - p - 2));
+    }
+
     // Parse {"response":"..."} from Ollama /api/generate response
     std::string parseResponse(const std::string& body) {
         return extractStr(body, "response");
+    }
+
+    std::string parseGeminiResponse(const std::string& body) {
+        return extractStr(body, "text");
     }
 
 public:
@@ -602,9 +624,21 @@ public:
     std::string genModel   = "llama3.2";
 
     OllamaClient(const std::string& h = "127.0.0.1", int p = 11434)
-        : host(h), port(p) {}
+        : host(h), port(p) {
+        if (const char* key = std::getenv("GEMINI_API_KEY")) {
+            geminiApiKey = key;
+            if (!geminiApiKey.empty()) {
+                useGemini = true;
+                embedModel = "text-embedding-004";
+                genModel = "gemini-1.5-flash";
+            }
+        }
+    }
 
     bool isAvailable() {
+        if (useGemini) {
+            return !geminiApiKey.empty();
+        }
         httplib::Client cli(host, port);
         cli.set_connection_timeout(2, 0);
         auto res = cli.Get("/api/tags");
@@ -613,6 +647,20 @@ public:
 
     // Returns empty vector if Ollama is not running or model not found
     std::vector<float> embed(const std::string& text) {
+        if (useGemini) {
+            httplib::Client cli("https://generativelanguage.googleapis.com");
+            cli.set_connection_timeout(5, 0);
+            cli.set_read_timeout(30, 0);
+            std::string path = "/v1beta/models/text-embedding-004:embedContent?key=" + geminiApiKey;
+            std::string body = "{\"model\":\"models/text-embedding-004\",\"content\":{\"parts\":[{\"text\":\"" + esc(text) + "\"}]}}";
+            auto res = cli.Post(path.c_str(), body, "application/json");
+            if (!res || res->status != 200) {
+                std::cerr << "Gemini Embedding Error: " << (res ? std::to_string(res->status) : "connection failed") << std::endl;
+                if (res) std::cerr << "Response: " << res->body << std::endl;
+                return {};
+            }
+            return parseGeminiEmbedding(res->body);
+        }
         httplib::Client cli(host, port);
         cli.set_connection_timeout(3, 0);
         cli.set_read_timeout(30, 0);
@@ -624,6 +672,20 @@ public:
 
     // Returns error string if Ollama is unavailable
     std::string generate(const std::string& prompt) {
+        if (useGemini) {
+            httplib::Client cli("https://generativelanguage.googleapis.com");
+            cli.set_connection_timeout(5, 0);
+            cli.set_read_timeout(120, 0);
+            std::string path = "/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiApiKey;
+            std::string body = "{\"contents\":[{\"parts\":[{\"text\":\"" + esc(prompt) + "\"}]}]}";
+            auto res = cli.Post(path.c_str(), body, "application/json");
+            if (!res || res->status != 200) {
+                std::cerr << "Gemini Generation Error: " << (res ? std::to_string(res->status) : "connection failed") << std::endl;
+                if (res) std::cerr << "Response: " << res->body << std::endl;
+                return "ERROR: Gemini API unavailable. Code: " + (res ? std::to_string(res->status) : "timeout");
+            }
+            return parseGeminiResponse(res->body);
+        }
         httplib::Client cli(host, port);
         cli.set_connection_timeout(3, 0);
         cli.set_read_timeout(180, 0);   // LLMs can be slow
@@ -770,14 +832,28 @@ int main() {
 
     loadDemo(db);
 
-    // Check Ollama at startup (non-fatal)
-    bool ollamaUp = ollama.isAvailable();
+    // Check Ollama/Gemini at startup (non-fatal)
+    bool clientAvailable = ollama.isAvailable();
+    int port = 8080;
+    if (const char* env_p = std::getenv("PORT")) {
+        try { port = std::stoi(env_p); } catch (...) {}
+    }
+    const char* geminiKey = std::getenv("GEMINI_API_KEY");
+    bool usingGemini = (geminiKey && geminiKey[0] != '\0');
+
     std::cout << "=== VectorDB Engine ===" << std::endl;
-    std::cout << "http://localhost:8080" << std::endl;
+    std::cout << "Server listening on http://0.0.0.0:" << port << std::endl;
     std::cout << db.size() << " demo vectors | " << DIMS << " dims | HNSW+KD-Tree+BruteForce" << std::endl;
-    std::cout << "Ollama: " << (ollamaUp ? "ONLINE" : "OFFLINE (install from ollama.com)") << std::endl;
-    if (ollamaUp) std::cout << "  embed model: " << ollama.embedModel
-                            << "  gen model: "   << ollama.genModel << std::endl;
+    if (usingGemini) {
+        std::cout << "Inference: GEMINI API (ONLINE)" << std::endl;
+        std::cout << "  embed model: text-embedding-004  gen model: gemini-1.5-flash" << std::endl;
+    } else {
+        std::cout << "Inference: OLLAMA (" << (clientAvailable ? "ONLINE" : "OFFLINE") << ")" << std::endl;
+        if (clientAvailable) {
+            std::cout << "  embed model: " << ollama.embedModel
+                      << "  gen model: "   << ollama.genModel << std::endl;
+        }
+    }
 
     httplib::Server svr;
 
@@ -1053,8 +1129,11 @@ int main() {
     svr.Get("/status", [&](const httplib::Request&, httplib::Response& res) {
         cors(res);
         bool up = ollama.isAvailable();
+        const char* geminiKey = std::getenv("GEMINI_API_KEY");
+        bool usingGemini = (geminiKey && geminiKey[0] != '\0');
         std::ostringstream ss;
         ss << "{\"ollamaAvailable\":"  << (up ? "true" : "false")
+           << ",\"usingGemini\":"      << (usingGemini ? "true" : "false")
            << ",\"embedModel\":"       << jS(ollama.embedModel)
            << ",\"genModel\":"         << jS(ollama.genModel)
            << ",\"docCount\":"         << docDB.size()
@@ -1084,6 +1163,12 @@ int main() {
             "text/html");
     });
 
-    svr.listen("0.0.0.0", 8080);
+    // /health endpoint
+    svr.Get("/health", [&](const httplib::Request&, httplib::Response& res) {
+        cors(res);
+        res.set_content("{\"status\":\"healthy\"}", "application/json");
+    });
+
+    svr.listen("0.0.0.0", port);
     return 0;
 }

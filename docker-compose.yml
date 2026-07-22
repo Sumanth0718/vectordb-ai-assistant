@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    environment:
+      - PORT=${PORT:-8080}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    # Allow communication with the local Ollama if Gemini API key is not supplied
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: always
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: always
+
+  ollama-setup:
+    image: curlimages/curl:latest
+    depends_on:
+      - ollama
+    entrypoint: >
+      sh -c "
+      echo 'Waiting for Ollama service to start...';
+      until curl -s http://ollama:11434/api/tags >/dev/null; do sleep 2; done;
+      echo 'Ollama service is up. Pulling nomic-embed-text embedding model...';
+      curl -s -X POST http://ollama:11434/api/pull -d '{\"name\":\"nomic-embed-text\"}';
+      echo '\nPulling llama3.2 LLM generation model...';
+      curl -s -X POST http://ollama:11434/api/pull -d '{\"name\":\"llama3.2\"}';
+      echo '\nAll models pulled successfully!';
+      "
+
+volumes:
+  ollama_data:
