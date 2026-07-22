@@ -629,7 +629,7 @@ public:
             geminiApiKey = key;
             if (!geminiApiKey.empty()) {
                 useGemini = true;
-                embedModel = "text-embedding-004";
+                embedModel = "gemini-embedding-001";
                 genModel = "gemini-1.5-flash";
             }
         }
@@ -666,8 +666,9 @@ public:
             cli.enable_server_certificate_verification(false);
             cli.set_connection_timeout(5, 0);
             cli.set_read_timeout(30, 0);
-            std::string path = "/v1/models/text-embedding-004:embedContent?key=" + geminiApiKey;
-            std::string body = "{\"model\":\"models/text-embedding-004\",\"content\":{\"parts\":[{\"text\":\"" + esc(text) + "\"}]}}";
+            // Official API: v1beta + gemini-embedding-001
+            std::string path = "/v1beta/models/gemini-embedding-001:embedContent?key=" + geminiApiKey;
+            std::string body = "{\"model\":\"models/gemini-embedding-001\",\"content\":{\"parts\":[{\"text\":\"" + esc(text) + "\"}]}}";
             auto res = cli.Post(path.c_str(), body, "application/json");
             if (!res || res->status != 200) {
                 std::cerr << "Gemini Embedding Error: " << (res ? std::to_string(res->status) : "connection failed") << std::endl;
@@ -696,7 +697,8 @@ public:
             cli.enable_server_certificate_verification(false);
             cli.set_connection_timeout(5, 0);
             cli.set_read_timeout(120, 0);
-            std::string path = "/v1/models/gemini-1.5-flash:generateContent?key=" + geminiApiKey;
+            // Official API: v1beta + gemini-1.5-flash
+            std::string path = "/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiApiKey;
             std::string body = "{\"contents\":[{\"parts\":[{\"text\":\"" + esc(prompt) + "\"}]}]}";
             auto res = cli.Post(path.c_str(), body, "application/json");
             if (!res || res->status != 200) {
@@ -893,7 +895,7 @@ int main() {
         out << "{";
         out << "\"keyPresent\":" << (key.empty() ? "false" : "true");
         out << ",\"keyLength\":" << key.size();
-        out << ",\"ollamaUseGemini\":" << (ollama.embedModel == "text-embedding-004" ? "true" : "false");
+        out << ",\"ollamaUseGemini\":" << (ollama.embedModel == "gemini-embedding-001" ? "true" : "false");
         out << ",\"embedModel\":\"" << ollama.embedModel << "\"";
 
         if (key.empty()) {
@@ -910,8 +912,9 @@ int main() {
         cli.set_connection_timeout(10, 0);
         cli.set_read_timeout(30, 0);
 
-        std::string path = "/v1/models/text-embedding-004:embedContent?key=" + key;
-        std::string body = "{\"model\":\"models/text-embedding-004\",\"content\":{\"parts\":[{\"text\":\"hello world\"}]}}";
+        // Official API: v1beta + gemini-embedding-001
+        std::string path = "/v1beta/models/gemini-embedding-001:embedContent?key=" + key;
+        std::string body = "{\"model\":\"models/gemini-embedding-001\",\"content\":{\"parts\":[{\"text\":\"hello world\"}]}}";
 
         out << ",\"requestPath\":\"" << path.substr(0, path.size() - key.size()) << "REDACTED\"";
         out << ",\"requestBody\":" << body;
