@@ -649,6 +649,9 @@ public:
     std::vector<float> embed(const std::string& text) {
         if (useGemini) {
             httplib::Client cli("https://generativelanguage.googleapis.com");
+#ifdef __linux__
+            cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
+#endif
             cli.set_connection_timeout(5, 0);
             cli.set_read_timeout(30, 0);
             std::string path = "/v1beta/models/text-embedding-004:embedContent?key=" + geminiApiKey;
@@ -674,6 +677,9 @@ public:
     std::string generate(const std::string& prompt) {
         if (useGemini) {
             httplib::Client cli("https://generativelanguage.googleapis.com");
+#ifdef __linux__
+            cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
+#endif
             cli.set_connection_timeout(5, 0);
             cli.set_read_timeout(120, 0);
             std::string path = "/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiApiKey;
@@ -993,8 +999,8 @@ int main() {
             auto emb = ollama.embed(chunks[i]);
             if (emb.empty()) {
                 res.set_content(
-                    "{\"error\":\"Ollama unavailable. "
-                    "Install from https://ollama.com then run: "
+                    "{\"error\":\"AI Provider unavailable. "
+                    "Check GEMINI_API_KEY or install Ollama: "
                     "ollama pull nomic-embed-text && ollama pull llama3.2\"}",
                     "application/json");
                 return;
@@ -1054,7 +1060,7 @@ int main() {
 
         auto qEmb = ollama.embed(question);
         if (qEmb.empty()) {
-            res.set_content("{\"error\":\"Ollama unavailable\"}", "application/json"); return;
+            res.set_content("{\"error\":\"AI Provider unavailable\"}", "application/json"); return;
         }
 
         auto hits = docDB.search(qEmb, k);
@@ -1084,7 +1090,7 @@ int main() {
         // Step 1: embed the question
         auto qEmb = ollama.embed(question);
         if (qEmb.empty()) {
-            res.set_content("{\"error\":\"Ollama unavailable\"}", "application/json"); return;
+            res.set_content("{\"error\":\"AI Provider unavailable\"}", "application/json"); return;
         }
 
         // Step 2: retrieve top-k relevant chunks
