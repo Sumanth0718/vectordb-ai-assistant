@@ -13,8 +13,8 @@ A high-performance C++ vector database built from scratch, featuring Brute Force
 
 ## Live Demo
 
-The application is deployed on Railway:
-- **Production URL**: [https://vectordb-ai-assistant-production.up.railway.app](https://vectordb-ai-assistant-production.up.railway.app)
+The application is deployed on Render:
+- **Production URL**: [https://vectordb-ai-assistant.onrender.com](https://vectordb-ai-assistant.onrender.com)
 
 ---
 
