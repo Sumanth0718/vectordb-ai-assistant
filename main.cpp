@@ -997,7 +997,7 @@ int main() {
         std::vector<int> ids;
 
         for (int i = 0; i < (int)chunks.size(); i++) {
-            auto emb = ollama.embed(chunks[i]);
+            auto emb = ollama.getEmbedding(chunks[i]);
             if (emb.empty()) {
                 res.set_content(
                     "{\"error\":\"AI Provider unavailable. "
@@ -1059,7 +1059,7 @@ int main() {
             res.set_content("{\"error\":\"need question\"}", "application/json"); return;
         }
 
-        auto qEmb = ollama.embed(question);
+        auto qEmb = ollama.getEmbedding(question);
         if (qEmb.empty()) {
             res.set_content("{\"error\":\"AI Provider unavailable\"}", "application/json"); return;
         }
@@ -1089,7 +1089,7 @@ int main() {
         }
 
         // Step 1: embed the question
-        auto qEmb = ollama.embed(question);
+        auto qEmb = ollama.getEmbedding(question);
         if (qEmb.empty()) {
             res.set_content("{\"error\":\"AI Provider unavailable\"}", "application/json"); return;
         }
@@ -1114,7 +1114,7 @@ int main() {
             "Answer:";
 
         // Step 4: generate answer
-        auto answer = ollama.generate(prompt);
+        auto answer = ollama.getCompletion(prompt);
 
         // Step 5: return everything
         std::ostringstream ss;
