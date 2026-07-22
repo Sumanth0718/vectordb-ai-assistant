@@ -630,7 +630,7 @@ public:
             if (!geminiApiKey.empty()) {
                 useGemini = true;
                 embedModel = "gemini-embedding-001";
-                genModel = "gemini-1.5-flash";
+                genModel = "gemini-2.0-flash";
             }
         }
     }
@@ -697,8 +697,8 @@ public:
             cli.enable_server_certificate_verification(false);
             cli.set_connection_timeout(5, 0);
             cli.set_read_timeout(120, 0);
-            // Official API: v1beta + gemini-1.5-flash
-            std::string path = "/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiApiKey;
+            // Official API: v1beta + gemini-2.0-flash (current stable model per docs)
+            std::string path = "/v1beta/models/gemini-2.0-flash:generateContent?key=" + geminiApiKey;
             std::string body = "{\"contents\":[{\"parts\":[{\"text\":\"" + esc(prompt) + "\"}]}]}";
             auto res = cli.Post(path.c_str(), body, "application/json");
             if (!res || res->status != 200) {
@@ -936,6 +936,40 @@ int main() {
             out << ",\"httpStatus\":" << r->status;
             out << ",\"responseBody\":\"" << esc_body << "\"";
             out << "}";
+        }
+        res.set_content(out.str(), "application/json");
+    });
+
+    // GET /debug/generate — tests generateContent with gemini-2.0-flash
+    svr.Get("/debug/generate", [&](const httplib::Request&, httplib::Response& res) {
+        cors(res);
+        const char* keyEnv = std::getenv("GEMINI_API_KEY");
+        std::string key = keyEnv ? keyEnv : "";
+        std::ostringstream out;
+        out << "{\"keyPresent\":" << (key.empty() ? "false" : "true");
+        out << ",\"genModel\":\"" << ollama.genModel << "\"";
+        if (key.empty()) { out << ",\"error\":\"no key\"}"; res.set_content(out.str(),"application/json"); return; }
+
+        // Try gemini-2.0-flash on v1beta
+        httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
+#ifdef __linux__
+        cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
+#endif
+        cli.enable_server_certificate_verification(false);
+        cli.set_connection_timeout(10, 0);
+        cli.set_read_timeout(30, 0);
+        std::string path = "/v1beta/models/gemini-2.0-flash:generateContent?key=" + key;
+        std::string body = "{\"contents\":[{\"parts\":[{\"text\":\"Say hello in one word.\"}]}]}";
+        auto r = cli.Post(path.c_str(), body, "application/json");
+        if (!r) {
+            out << ",\"httpStatus2.0flash\":null,\"httpError\":\"connection failed\"}";
+        } else {
+            std::string rb = r->body, esc;
+            for (char c : rb) {
+                if (c=='"') esc+="\\\""; else if (c=='\\') esc+="\\\\"; else if (c=='\n') esc+="\\n"; else esc+=c;
+            }
+            out << ",\"status_gemini20flash\":" << r->status;
+            out << ",\"body_gemini20flash\":\"" << esc << "\"}";
         }
         res.set_content(out.str(), "application/json");
     });
