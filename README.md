@@ -1,12 +1,20 @@
 # VectorDB AI Assistant
 
-A high-performance C++ vector database built from scratch, featuring Brute Force, KD-Tree, and HNSW search algorithms. It includes a custom REST API, a responsive frontend UI with a 2D PCA scatter plot, and a Retrieval-Augmented Generation (RAG) pipeline powered by local LLMs via Ollama.
+A high-performance C++ vector database built from scratch, featuring Brute Force, KD-Tree, and HNSW search algorithms. It includes a custom REST API, a responsive frontend UI with a 2D PCA scatter plot, and a Retrieval-Augmented Generation (RAG) pipeline powered by either local LLMs via Ollama or the cloud-based Gemini API.
 
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 ![Ollama](https://img.shields.io/badge/Ollama-Offline-orange.svg)
+![Gemini API](https://img.shields.io/badge/Gemini-Cloud-blue.svg)
 ![REST API](https://img.shields.io/badge/API-REST-green.svg)
 ![HNSW](https://img.shields.io/badge/Search-HNSW%20%7C%20KD--Tree-purple.svg)
 ![RAG](https://img.shields.io/badge/Pipeline-RAG-blue.svg)
+
+---
+
+## Live Demo
+
+The application is deployed on Railway:
+- **Production URL**: [https://vectordb-ai-assistant-production.up.railway.app](https://vectordb-ai-assistant-production.up.railway.app)
 
 ---
 
@@ -18,9 +26,10 @@ A high-performance C++ vector database built from scratch, featuring Brute Force
 - **Multiple Distance Metrics**: Support for Cosine similarity, Euclidean distance, and Manhattan distance metrics.
 - **Semantic Vector Search**: Live vector search and real-time visualization on pre-loaded 16D semantic dataset.
 - **Interactive Visualization**: Live 2D PCA projection scatter plot visualizing cluster formations and search paths.
-- **Document Embeddings**: Text chunking and embedding generation using local models.
+- **Document Embeddings**: Text chunking and embedding generation using local models or Gemini API.
 - **Retrieval-Augmented Generation (RAG)**: Full RAG pipeline that fetches context from local documents to answer questions with an LLM.
 - **REST API**: Clean endpoints for operations including search, insert, delete, stats, and benchmarks.
+- **Dual Inference Modes**: Runs completely offline using local models via Ollama, or scales instantly in production using the cloud-based Gemini API (when `GEMINI_API_KEY` is provided).
 - **Benchmarking**: Compare execution speeds of HNSW, KD-Tree, and Brute Force search side-by-side.
 
 ---
@@ -30,10 +39,11 @@ A high-performance C++ vector database built from scratch, featuring Brute Force
 | Technology | Purpose | Details |
 |---|---|---|
 | **C++17** | Core Engine | Custom database structures, indexes, and algorithm implementations |
-| **Ollama** | Local AI Gateway | Local orchestration of embedding and LLM inference models |
-| **Llama 3.2** | RAG Generation | Local LLM for generating answers based on retrieved context |
-| **nomic-embed-text** | Text Embeddings | 768-dimensional local text embedding generation |
-| **cpp-httplib** | Web Server | Lightweight single-header HTTP server for the REST API |
+| **Ollama** (Local Mode) | Local AI Gateway | Offline nomic-embed-text (768D) & llama3.2 (LLM) |
+| **Gemini API** (Prod Mode) | Cloud Inference | text-embedding-004 (768D) & gemini-1.5-flash (LLM) |
+| **cpp-httplib** | Web Server | Lightweight single-header HTTP server with OpenSSL support |
+| **CMake** | Build System | Handles multi-platform compilation and dependency linking |
+| **Docker** | Containerization | Production-ready multi-stage Ubuntu build configuration |
 | **HTML5 / Vanilla CSS** | Frontend UI | Clean, modern user interface, responsive layout, dark theme |
 | **JavaScript** | UI & Visualization | Handles state, API client logic, and PCA canvas rendering |
 
@@ -50,6 +60,7 @@ A high-performance C++ vector database built from scratch, featuring Brute Force
                          v
        +-----------------+------------------+
        |             REST API               |
+       |  (Dynamic Port / Health Checks)    |
        +-----------------+------------------+
                          |
                          | Query & Commands
@@ -70,95 +81,141 @@ A high-performance C++ vector database built from scratch, featuring Brute Force
                          | Embeddings & Text Context
                          v
        +-----------------+------------------+
-       |              Ollama                |
-       |  (nomic-embed-text / llama3.2)     |
-       +-----------------+------------------+
-                         |
-                         | Generated Answer
-                         v
-       +-----------------+------------------+
-       |           AI Response              |
-       +------------------------------------+
+       |         Inference Manager          |
+       +--------+------------------+--------+
+                |                  |
+                | (If KEY set)     | (Default)
+                v                  v
+       +--------+--------+  +------+--------+
+       |   Gemini API    |  |    Ollama     |
+       |  (Cloud RAG)    |  |  (Local RAG)  |
+       +-----------------+  +---------------+
 ```
 
 ---
 
-## Project Structure
+## Environment Variables
 
-```
-vectordb-ai-assistant/
-├── main.cpp        # C++ backend (HNSW, KD-Tree, Brute Force, REST API, RAG)
-├── httplib.h       # Single-header C++ HTTP server library
-├── index.html      # Web frontend (PCA visualization, benchmark, chat UI)
-├── README.md       # Project documentation
-└── .gitignore      # Git exclusion list
-```
+| Variable | Description | Default | Required in Production |
+|---|---|---|---|
+| `PORT` | The port the web server binds to | `8080` | Yes (Railway/Render binds dynamically) |
+| `GEMINI_API_KEY` | Google AI developer API key | (empty - defaults to Ollama) | Optional (Required for production cloud RAG) |
 
 ---
 
-## Installation
+## Local Setup
 
-### 1. Clone the repository
-```bash
-git clone https://github.com/Sumanth0718/vectordb-ai-assistant.git
-cd vectordb-ai-assistant
-```
+### Prerequisites
+- A C++17 compliant compiler (`clang++` or `g++`)
+- `CMake` (version 3.12+)
+- `OpenSSL` libraries (`libssl-dev` on Linux, `openssl@3` via Homebrew on macOS)
 
-### 2. Install Ollama
-Download and install Ollama for your platform from [ollama.com](https://ollama.com).
-
-### 3. Pull required models
-Ensure Ollama is running and download the embedding and LLM models:
+### 1. Offline Mode: Local Ollama Setup
+If running locally without an internet connection, install Ollama from [ollama.com](https://ollama.com) and pull models:
 ```bash
 ollama pull nomic-embed-text
 ollama pull llama3.2
 ```
 
-### 4. Compile
-Compile the C++ server. Any C++17 compliant compiler can be used if `clang++` is unavailable:
+### 2. Compile and Run with CMake
 ```bash
-clang++ -std=c++17 -O2 main.cpp -o db
-```
+# Clone the repository
+git clone https://github.com/Sumanth0718/vectordb-ai-assistant.git
+cd vectordb-ai-assistant
 
-### 5. Run
-Ensure the Ollama service is running, then start the VectorDB server:
-```bash
+# Build using CMake
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
+
+# Start the server (runs local Ollama by default)
 ./db
 ```
-Access the web dashboard at `http://localhost:8080`.
+
+### 3. Compile and Run using Gemini API Fallback
+Provide your Gemini API key in the environment to bypass local Ollama:
+```bash
+export GEMINI_API_KEY="your-gemini-api-key"
+./db
+```
+
+Access the dashboard at `http://localhost:8080`.
 
 ---
 
-## Usage
+## Docker & Container Usage
 
-- **Search Tab**: Run queries against the demo vectors. Choose search algorithms and distance metrics to compare search speeds and paths visually.
-- **Documents Tab**: Enter arbitrary text documents to automatically chunk, embed, and store in the high-dimensional index.
-- **Ask AI Tab**: Query the stored documents. The engine embeds your question, runs HNSW search to retrieve relevant text chunks, and sends them to Llama 3.2 for generating a precise, context-aware answer.
-- **REST API**: Integrate other applications using simple HTTP endpoints.
+### 1. Build Production Docker Image Locally
+```bash
+docker build -t vectordb-ai-assistant .
+```
 
-### API Reference
+### 2. Run Container with Gemini API
+```bash
+docker run -d \
+  -p 8080:8080 \
+  -e PORT=8080 \
+  -e GEMINI_API_KEY="your-gemini-api-key" \
+  --name vectordb-app \
+  vectordb-ai-assistant
+```
+
+### 3. Deploy Multi-Container Stack (Docker Compose)
+We provide a zero-configuration Docker Compose stack that spins up the backend and a local Ollama instance, auto-downloading the necessary models at startup:
+```bash
+docker compose up -d
+```
+
+---
+
+## Cloud Deployment (Railway)
+
+To deploy to **Railway**:
+1. Connect your GitHub repository to a new Railway project.
+2. Railway will automatically detect the `Dockerfile` and configure build settings.
+3. In Railway **Variables**, add the following:
+   - `GEMINI_API_KEY` = `[Your Google Gemini API Key]`
+4. Railway binds `PORT` dynamically. The backend will read the port and start listening.
+5. Once built, generate a domain in the Railway dashboard to expose the public endpoint.
+
+---
+
+## REST API Reference
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/search` | Query database using specific algorithm and distance metric |
-| `POST` | `/insert` | Add a new raw vector to the database |
-| `GET` | `/benchmark` | Execute the query across all search algorithms and display timing |
-| `GET` | `/hnsw-info` | Fetch current HNSW graph details, layers, and connection counts |
-| `POST` | `/doc/insert` | Slice a text document, generate vector embeddings, and save to index |
-| `POST` | `/doc/ask` | Retrieve relevant document context and generate LLM response (RAG) |
+| `GET` | `/health` | Health check endpoint returning `{"status":"healthy"}` |
+| `GET` | `/status` | Server status showing model details and active configurations |
+| `GET` | `/stats` | Statistics on loaded vectors (dimension, metrics, count) |
+| `GET` | `/items` | List all preloaded semantic 16D vectors |
+| `GET` | `/search` | Query 16D database using specific algorithm and metric |
+| `POST` | `/insert` | Add a new raw 16D vector to the database |
+| `DELETE` | `/delete/:id` | Remove a 16D vector from the database by ID |
+| `GET` | `/benchmark` | Execute test query across HNSW, KD-Tree, Brute Force and output timing |
+| `GET` | `/hnsw-info` | Fetch current HNSW graph details, layers, and connections |
+| `POST` | `/doc/insert` | Slice text document, generate 768D embeddings, save to index |
+| `DELETE` | `/doc/delete/:id`| Remove a document chunk from index |
+| `GET` | `/doc/list` | Retrieve list of loaded document previews |
+| `POST` | `/doc/search` | Semantic nearest neighbor search over document chunks |
+| `POST` | `/doc/ask` | Retrieve relevant document context and generate LLM RAG response |
 
 ---
 
-## Screenshots
+## Troubleshooting
 
-### 1. Vector Search Dashboard (Initial State)
-![Vector Search Dashboard](screenshots/search_initial.png)
+### CMake cannot find OpenSSL
+- **macOS**: CMake may fail to find Homebrew's OpenSSL install. Build by specifying the path:
+  ```bash
+  cmake -DOPENSSL_ROOT_DIR=/opt/homebrew/opt/openssl@3 ..
+  ```
+- **Ubuntu/Debian**: Ensure you have installed the development libraries:
+  ```bash
+  sudo apt-get install libssl-dev
+  ```
 
-### 2. Live Query Visualization & Latency Analysis
-![Query Search Visualization](screenshots/search_query.png)
-
-### 3. Document Ingestion (Local Embeddings)
-![Document Ingestion](screenshots/documents_tab.png)
-
-### 4. Ask AI Assistant (Retrieval-Augmented Generation)
-![RAG Chat Assistant](screenshots/rag_ask_ai.png)
+### RAG/Document operations fail
+- Ensure you have either set `GEMINI_API_KEY` in your environment or running Ollama locally with `nomic-embed-text` and `llama3.2` models.
+- If using Docker Compose, check the `ollama-setup` logs to verify the models downloaded completely:
+  ```bash
+  docker compose logs ollama-setup
+  ```
