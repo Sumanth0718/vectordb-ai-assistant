@@ -6,6 +6,7 @@
 #include <cmath>
 #include <random>
 #include <chrono>
+#include <thread>
 #include <mutex>
 #include <unordered_map>
 #include <queue>
@@ -690,23 +691,50 @@ public:
     std::string generate(const std::string& prompt) {
         std::cerr << "[generate] called, useGemini=" << useGemini << std::endl;
         if (useGemini) {
-            httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
-#ifdef __linux__
-            cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
-#endif
-            cli.enable_server_certificate_verification(false);
-            cli.set_connection_timeout(5, 0);
-            cli.set_read_timeout(120, 0);
-            // Official API: v1beta + gemini-2.0-flash (current stable model per docs)
-            std::string path = "/v1beta/models/gemini-2.0-flash:generateContent?key=" + geminiApiKey;
+            // Try primary model first, then fallback model on 429
+            const std::vector<std::string> models = {
+                "gemini-2.0-flash",
+                "gemini-1.5-flash"
+            };
             std::string body = "{\"contents\":[{\"parts\":[{\"text\":\"" + esc(prompt) + "\"}]}]}";
-            auto res = cli.Post(path.c_str(), body, "application/json");
-            if (!res || res->status != 200) {
-                std::cerr << "Gemini Generation Error: " << (res ? std::to_string(res->status) : "connection failed") << std::endl;
-                if (res) std::cerr << "Response: " << res->body << std::endl;
-                return "ERROR: Gemini API unavailable. Code: " + (res ? std::to_string(res->status) : "timeout");
+
+            for (size_t mi = 0; mi < models.size(); mi++) {
+                const std::string& model = models[mi];
+                std::string path = "/v1beta/models/" + model + ":generateContent?key=" + geminiApiKey;
+
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    if (attempt > 0) {
+                        std::cerr << "[generate] 429 rate limit, waiting 5s before retry..." << std::endl;
+                        std::this_thread::sleep_for(std::chrono::seconds(5));
+                    }
+
+                    httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
+#ifdef __linux__
+                    cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
+#endif
+                    cli.enable_server_certificate_verification(false);
+                    cli.set_connection_timeout(5, 0);
+                    cli.set_read_timeout(120, 0);
+
+                    auto res = cli.Post(path.c_str(), body, "application/json");
+                    if (!res) {
+                        std::cerr << "[generate] connection failed for model=" << model << std::endl;
+                        break; // try next model
+                    }
+                    std::cerr << "[generate] model=" << model << " status=" << res->status << std::endl;
+                    if (res->status == 429) {
+                        std::cerr << "[generate] rate limited: " << res->body << std::endl;
+                        continue; // retry this model after sleep
+                    }
+                    if (res->status != 200) {
+                        std::cerr << "[generate] error " << res->status << ": " << res->body << std::endl;
+                        break; // try next model
+                    }
+                    // Success
+                    return parseGeminiResponse(res->body);
+                }
             }
-            return parseGeminiResponse(res->body);
+            return "I'm currently rate-limited by the Gemini API. Please try again in a few seconds.";
         }
         httplib::Client cli(host, port);
         cli.set_connection_timeout(3, 0);
