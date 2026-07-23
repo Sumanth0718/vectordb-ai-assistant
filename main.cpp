@@ -707,8 +707,7 @@ public:
                 {"v1beta", "gemini-2.0-flash"}
             };
             std::string body = "{\"contents\":[{\"parts\":[{\"text\":\"" + esc(prompt) + "\"}]}]}";
-            int lastStatus = 0;
-            std::string lastResponseBody;
+            std::ostringstream attemptsLog;
 
             for (size_t mi = 0; mi < models.size(); mi++) {
                 const auto& spec = models[mi];
@@ -724,20 +723,19 @@ public:
 
                 auto res = cli.Post(path.c_str(), body, "application/json");
                 if (!res) {
-                    std::cerr << "[generate] connection failed for model=" << spec.name << std::endl;
-                    lastStatus = 0;
-                    lastResponseBody = "Connection to Gemini API failed or timed out.";
+                    attemptsLog << "[" << spec.name << " (" << spec.apiVer << "): connection failed] ";
                     continue;
                 }
 
                 std::cerr << "[generate] model=" << spec.name << " ver=" << spec.apiVer << " status=" << res->status << std::endl;
-                lastStatus = res->status;
-                lastResponseBody = res->body;
 
                 if (res->status == 200) {
                     genModel = spec.name; // Update active working model
                     return parseGeminiResponse(res->body);
                 }
+
+                // Log this model's failure details
+                attemptsLog << "[" << spec.name << " (" << spec.apiVer << "): HTTP " << res->status << " - " << extractStr(res->body, "message") << "] ";
 
                 // If 429 and it's a transient rate limit (not limit: 0), try a quick retry after 3s
                 if (res->status == 429 && res->body.find("limit: 0") == std::string::npos) {
@@ -748,22 +746,10 @@ public:
                         genModel = spec.name;
                         return parseGeminiResponse(res2->body);
                     }
-                    if (res2) {
-                        lastStatus = res2->status;
-                        lastResponseBody = res2->body;
-                    }
                 }
             }
 
-            // Extract error message from last response
-            std::string errMsg = extractStr(lastResponseBody, "message");
-            if (errMsg.empty()) errMsg = lastResponseBody;
-
-            if (lastStatus == 429) {
-                return "Gemini API Rate-Limited (HTTP 429): " + errMsg;
-            } else {
-                return "Gemini API Error (HTTP " + std::to_string(lastStatus) + "): " + errMsg;
-            }
+            return "Gemini Generation Failed: " + attemptsLog.str();
         }
         httplib::Client cli(host, port);
         cli.set_connection_timeout(3, 0);
