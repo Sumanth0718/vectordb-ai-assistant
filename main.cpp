@@ -617,7 +617,11 @@ class OllamaClient {
     }
 
     std::string parseGeminiResponse(const std::string& body) {
-        return extractStr(body, "text");
+        std::string text = extractStr(body, "text");
+        if (!text.empty()) return text;
+        std::string blockReason = extractStr(body, "blockReason");
+        if (!blockReason.empty()) return "Blocked by Gemini safety settings: " + blockReason;
+        return "Gemini returned empty text response.";
     }
 
 public:
@@ -631,7 +635,7 @@ public:
             if (!geminiApiKey.empty()) {
                 useGemini = true;
                 embedModel = "gemini-embedding-001";
-                genModel = "gemini-2.0-flash";
+                genModel = "gemini-1.5-flash";
             }
         }
     }
@@ -687,54 +691,77 @@ public:
         return parseEmbedding(res->body);
     }
 
-    // Returns error string if Ollama is unavailable
+    // Returns error string if Ollama/Gemini is unavailable
     std::string generate(const std::string& prompt) {
         std::cerr << "[generate] called, useGemini=" << useGemini << std::endl;
         if (useGemini) {
-            // Try primary model first, then fallback model on 429
+            // Models to try in order of preference
             const std::vector<std::string> models = {
-                "gemini-2.0-flash",
-                "gemini-1.5-flash"
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-8b",
+                "gemini-2.5-flash",
+                "gemini-2.0-flash-lite",
+                "gemini-1.5-pro",
+                "gemini-2.0-flash"
             };
             std::string body = "{\"contents\":[{\"parts\":[{\"text\":\"" + esc(prompt) + "\"}]}]}";
+            int lastStatus = 0;
+            std::string lastResponseBody;
 
             for (size_t mi = 0; mi < models.size(); mi++) {
                 const std::string& model = models[mi];
                 std::string path = "/v1beta/models/" + model + ":generateContent?key=" + geminiApiKey;
 
-                for (int attempt = 0; attempt < 2; attempt++) {
-                    if (attempt > 0) {
-                        std::cerr << "[generate] 429 rate limit, waiting 5s before retry..." << std::endl;
-                        std::this_thread::sleep_for(std::chrono::seconds(5));
-                    }
-
-                    httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
+                httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
 #ifdef __linux__
-                    cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
+                cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
 #endif
-                    cli.enable_server_certificate_verification(false);
-                    cli.set_connection_timeout(5, 0);
-                    cli.set_read_timeout(120, 0);
+                cli.enable_server_certificate_verification(false);
+                cli.set_connection_timeout(5, 0);
+                cli.set_read_timeout(120, 0);
 
-                    auto res = cli.Post(path.c_str(), body, "application/json");
-                    if (!res) {
-                        std::cerr << "[generate] connection failed for model=" << model << std::endl;
-                        break; // try next model
-                    }
-                    std::cerr << "[generate] model=" << model << " status=" << res->status << std::endl;
-                    if (res->status == 429) {
-                        std::cerr << "[generate] rate limited: " << res->body << std::endl;
-                        continue; // retry this model after sleep
-                    }
-                    if (res->status != 200) {
-                        std::cerr << "[generate] error " << res->status << ": " << res->body << std::endl;
-                        break; // try next model
-                    }
-                    // Success
+                auto res = cli.Post(path.c_str(), body, "application/json");
+                if (!res) {
+                    std::cerr << "[generate] connection failed for model=" << model << std::endl;
+                    lastStatus = 0;
+                    lastResponseBody = "Connection to Gemini API failed or timed out.";
+                    continue;
+                }
+
+                std::cerr << "[generate] model=" << model << " status=" << res->status << std::endl;
+                lastStatus = res->status;
+                lastResponseBody = res->body;
+
+                if (res->status == 200) {
+                    genModel = model; // Update active working model
                     return parseGeminiResponse(res->body);
                 }
+
+                // If 429 and it's a transient rate limit (not limit: 0), try a quick retry after 3s
+                if (res->status == 429 && res->body.find("limit: 0") == std::string::npos) {
+                    std::cerr << "[generate] 429 rate limit (transient), waiting 3s before retry..." << std::endl;
+                    std::this_thread::sleep_for(std::chrono::seconds(3));
+                    auto res2 = cli.Post(path.c_str(), body, "application/json");
+                    if (res2 && res2->status == 200) {
+                        genModel = model;
+                        return parseGeminiResponse(res2->body);
+                    }
+                    if (res2) {
+                        lastStatus = res2->status;
+                        lastResponseBody = res2->body;
+                    }
+                }
             }
-            return "I'm currently rate-limited by the Gemini API. Please try again in a few seconds.";
+
+            // Extract error message from last response
+            std::string errMsg = extractStr(lastResponseBody, "message");
+            if (errMsg.empty()) errMsg = lastResponseBody;
+
+            if (lastStatus == 429) {
+                return "Gemini API Rate-Limited (HTTP 429): " + errMsg;
+            } else {
+                return "Gemini API Error (HTTP " + std::to_string(lastStatus) + "): " + errMsg;
+            }
         }
         httplib::Client cli(host, port);
         cli.set_connection_timeout(3, 0);
@@ -968,17 +995,25 @@ int main() {
         res.set_content(out.str(), "application/json");
     });
 
-    // GET /debug/generate — tests generateContent with gemini-2.0-flash
+    // GET /debug/generate — tests generateContent across model list
     svr.Get("/debug/generate", [&](const httplib::Request&, httplib::Response& res) {
         cors(res);
         const char* keyEnv = std::getenv("GEMINI_API_KEY");
         std::string key = keyEnv ? keyEnv : "";
         std::ostringstream out;
         out << "{\"keyPresent\":" << (key.empty() ? "false" : "true");
-        out << ",\"genModel\":\"" << ollama.genModel << "\"";
+        out << ",\"currentGenModel\":\"" << ollama.genModel << "\"";
         if (key.empty()) { out << ",\"error\":\"no key\"}"; res.set_content(out.str(),"application/json"); return; }
 
-        // Try gemini-2.0-flash on v1beta
+        const std::vector<std::string> testModels = {
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-8b",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash"
+        };
+
         httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
 #ifdef __linux__
         cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
@@ -986,19 +1021,26 @@ int main() {
         cli.enable_server_certificate_verification(false);
         cli.set_connection_timeout(10, 0);
         cli.set_read_timeout(30, 0);
-        std::string path = "/v1beta/models/gemini-2.0-flash:generateContent?key=" + key;
-        std::string body = "{\"contents\":[{\"parts\":[{\"text\":\"Say hello in one word.\"}]}]}";
-        auto r = cli.Post(path.c_str(), body, "application/json");
-        if (!r) {
-            out << ",\"httpStatus2.0flash\":null,\"httpError\":\"connection failed\"}";
-        } else {
-            std::string rb = r->body, esc;
-            for (char c : rb) {
-                if (c=='"') esc+="\\\""; else if (c=='\\') esc+="\\\\"; else if (c=='\n') esc+="\\n"; else esc+=c;
+
+        out << ",\"modelResults\":{";
+        for (size_t i = 0; i < testModels.size(); i++) {
+            if (i > 0) out << ",";
+            const auto& m = testModels[i];
+            std::string path = "/v1beta/models/" + m + ":generateContent?key=" + key;
+            std::string body = "{\"contents\":[{\"parts\":[{\"text\":\"Hello\"}]}]}";
+            auto r = cli.Post(path.c_str(), body, "application/json");
+            out << "\"" << m << "\":{";
+            if (!r) {
+                out << "\"status\":null,\"error\":\"connection failed\"}";
+            } else {
+                std::string rb = r->body, esc;
+                for (char c : rb) {
+                    if (c=='"') esc+="\\\""; else if (c=='\\') esc+="\\\\"; else if (c=='\n') esc+="\\n"; else if (c=='\r') esc+="\\r"; else esc+=c;
+                }
+                out << "\"status\":" << r->status << ",\"body\":\"" << esc << "\"}";
             }
-            out << ",\"status_gemini20flash\":" << r->status;
-            out << ",\"body_gemini20flash\":\"" << esc << "\"}";
         }
+        out << "}}";
         res.set_content(out.str(), "application/json");
     });
 
