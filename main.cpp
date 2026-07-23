@@ -695,22 +695,24 @@ public:
     std::string generate(const std::string& prompt) {
         std::cerr << "[generate] called, useGemini=" << useGemini << std::endl;
         if (useGemini) {
-            // Models to try in order of preference
-            const std::vector<std::string> models = {
-                "gemini-1.5-flash",
-                "gemini-1.5-flash-8b",
-                "gemini-2.5-flash",
-                "gemini-2.0-flash-lite",
-                "gemini-1.5-pro",
-                "gemini-2.0-flash"
+            struct ModelSpec {
+                std::string apiVer;
+                std::string name;
+            };
+            const std::vector<ModelSpec> models = {
+                {"v1",     "gemini-1.5-flash"},
+                {"v1",     "gemini-1.5-flash-8b"},
+                {"v1",     "gemini-1.5-pro"},
+                {"v1beta", "gemini-2.0-flash-lite"},
+                {"v1beta", "gemini-2.0-flash"}
             };
             std::string body = "{\"contents\":[{\"parts\":[{\"text\":\"" + esc(prompt) + "\"}]}]}";
             int lastStatus = 0;
             std::string lastResponseBody;
 
             for (size_t mi = 0; mi < models.size(); mi++) {
-                const std::string& model = models[mi];
-                std::string path = "/v1beta/models/" + model + ":generateContent?key=" + geminiApiKey;
+                const auto& spec = models[mi];
+                std::string path = "/" + spec.apiVer + "/models/" + spec.name + ":generateContent?key=" + geminiApiKey;
 
                 httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
 #ifdef __linux__
@@ -722,18 +724,18 @@ public:
 
                 auto res = cli.Post(path.c_str(), body, "application/json");
                 if (!res) {
-                    std::cerr << "[generate] connection failed for model=" << model << std::endl;
+                    std::cerr << "[generate] connection failed for model=" << spec.name << std::endl;
                     lastStatus = 0;
                     lastResponseBody = "Connection to Gemini API failed or timed out.";
                     continue;
                 }
 
-                std::cerr << "[generate] model=" << model << " status=" << res->status << std::endl;
+                std::cerr << "[generate] model=" << spec.name << " ver=" << spec.apiVer << " status=" << res->status << std::endl;
                 lastStatus = res->status;
                 lastResponseBody = res->body;
 
                 if (res->status == 200) {
-                    genModel = model; // Update active working model
+                    genModel = spec.name; // Update active working model
                     return parseGeminiResponse(res->body);
                 }
 
@@ -743,7 +745,7 @@ public:
                     std::this_thread::sleep_for(std::chrono::seconds(3));
                     auto res2 = cli.Post(path.c_str(), body, "application/json");
                     if (res2 && res2->status == 200) {
-                        genModel = model;
+                        genModel = spec.name;
                         return parseGeminiResponse(res2->body);
                     }
                     if (res2) {
@@ -1005,13 +1007,17 @@ int main() {
         out << ",\"currentGenModel\":\"" << ollama.genModel << "\"";
         if (key.empty()) { out << ",\"error\":\"no key\"}"; res.set_content(out.str(),"application/json"); return; }
 
-        const std::vector<std::string> testModels = {
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-8b",
-            "gemini-2.5-flash",
-            "gemini-2.0-flash-lite",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash"
+        struct ModelSpec {
+            std::string apiVer;
+            std::string name;
+        };
+
+        const std::vector<ModelSpec> testModels = {
+            {"v1",     "gemini-1.5-flash"},
+            {"v1",     "gemini-1.5-flash-8b"},
+            {"v1",     "gemini-1.5-pro"},
+            {"v1beta", "gemini-2.0-flash-lite"},
+            {"v1beta", "gemini-2.0-flash"}
         };
 
         httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
@@ -1025,11 +1031,11 @@ int main() {
         out << ",\"modelResults\":{";
         for (size_t i = 0; i < testModels.size(); i++) {
             if (i > 0) out << ",";
-            const auto& m = testModels[i];
-            std::string path = "/v1beta/models/" + m + ":generateContent?key=" + key;
+            const auto& spec = testModels[i];
+            std::string path = "/" + spec.apiVer + "/models/" + spec.name + ":generateContent?key=" + key;
             std::string body = "{\"contents\":[{\"parts\":[{\"text\":\"Hello\"}]}]}";
             auto r = cli.Post(path.c_str(), body, "application/json");
-            out << "\"" << m << "\":{";
+            out << "\"" << spec.name << "\":{";
             if (!r) {
                 out << "\"status\":null,\"error\":\"connection failed\"}";
             } else {
