@@ -1044,6 +1044,51 @@ int main() {
         res.set_content(out.str(), "application/json");
     });
 
+    // GET /debug/listmodels — lists all models available for the GEMINI_API_KEY
+    svr.Get("/debug/listmodels", [&](const httplib::Request&, httplib::Response& res) {
+        cors(res);
+        const char* keyEnv = std::getenv("GEMINI_API_KEY");
+        std::string key = keyEnv ? keyEnv : "";
+        if (key.empty()) { res.set_content("{\"error\":\"no key\"}", "application/json"); return; }
+
+        httplib::SSLClient cli("generativelanguage.googleapis.com", 443);
+#ifdef __linux__
+        cli.set_ca_cert_path("/etc/ssl/certs/ca-certificates.crt");
+#endif
+        cli.enable_server_certificate_verification(false);
+        cli.set_connection_timeout(10, 0);
+        cli.set_read_timeout(30, 0);
+
+        std::ostringstream out;
+        out << "{";
+
+        // Query v1beta models
+        auto rBeta = cli.Get(("/v1beta/models?key=" + key).c_str());
+        out << "\"v1beta_status\":" << (rBeta ? std::to_string(rBeta->status) : "null");
+        if (rBeta) {
+            std::string rb = rBeta->body, esc;
+            for (char c : rb) {
+                if (c=='"') esc+="\\\""; else if (c=='\\') esc+="\\\\"; else if (c=='\n') esc+="\\n"; else if (c=='\r') esc+="\\r"; else esc+=c;
+            }
+            out << ",\"v1beta_body\":\"" << esc << "\"";
+        }
+
+        // Query v1 models
+        auto rV1 = cli.Get(("/v1/models?key=" + key).c_str());
+        out << ",\"v1_status\":" << (rV1 ? std::to_string(rV1->status) : "null");
+        if (rV1) {
+            std::string rb = rV1->body, esc;
+            for (char c : rb) {
+                if (c=='"') esc+="\\\""; else if (c=='\\') esc+="\\\\"; else if (c=='\n') esc+="\\n"; else if (c=='\r') esc+="\\r"; else esc+=c;
+            }
+            out << ",\"v1_body\":\"" << esc << "\"";
+        }
+
+        out << "}";
+        res.set_content(out.str(), "application/json");
+    });
+
+
 
     svr.Get("/search", [&](const httplib::Request& req, httplib::Response& res) {
         cors(res);
